@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Landslide Sentinel — Map Prototype</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    #map { height: 100%; width: 100%; }
+    .dashboard {
+      position: absolute; top: 12px; left: 12px; z-index: 2;
+      background: rgba(255,255,255,0.95); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      padding: 12px; min-width: 260px;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tile {
+      flex: 1 1 110px; border-radius: 8px; padding: 8px 10px; color: #fff; font-weight: 600;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .tile small { font-weight: 400; opacity: 0.85; }
+    .legend {
+      position: absolute; bottom: 14px; left: 12px; z-index: 2;
+      background: rgba(255,255,255,0.95); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      font-size: 14px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); }
+    .attribution { position: absolute; bottom: 14px; right: 12px; background: rgba(255,255,255,0.8); padding: 6px 8px; border-radius: 6px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="dashboard" id="dashboard">
+    <div style="font-weight:700; margin-bottom:6px;">Site A — Ridge Hamlet</div>
+    <div class="row" id="kpis">
+      <!-- Filled by JS -->
+    </div>
+    <div style="margin-top:8px; font-size:12px; opacity:0.8;">
+      Nodes: <span id="nodeCount">0</span> • Areas: <span id="areaCount">0</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div style="font-weight:600; margin-bottom:4px;">Legend</div>
+    <div class="legend-item"><span class="swatch" style="background:#009E73"></span> Info</div>
+    <div class="legend-item"><span class="swatch" style="background:#E69F00"></span> Watch</div>
+    <div class="legend-item"><span class="swatch" style="background:#D55E00"></span> Warning</div>
+    <div class="legend-item"><span class="swatch" style="background:#9E0000"></span> Evacuate</div>
+  </div>
+
+  <div class="attribution">Demo — not real-time</div>
+
+  <script>
+    // ----- Sample data (replace with your real data later) -----
+    const RISK_COLORS = {
+      Info: '#009E73',
+      Watch: '#E69F00',
+      Warning: '#D55E00',
+      Evacuate: '#9E0000'
+    };
+
+    const NODES = [
+      { id: "A1", name: "Node A1 — Crown", lat: 30.3162, lng: 78.0248, types: ["tilt","rain"], risk: "Watch", last_seen: "2025-10-24 12:15", battery: 3.9 },
+      { id: "A2", name: "Node A2 — Mid-slope", lat: 30.3151, lng: 78.0264, types: ["tilt","geophone"], risk: "Warning", last_seen: "2025-10-24 12:14", battery: 3.7 },
+      { id: "A3", name: "Node A3 — Toe", lat: 30.3144, lng: 78.0278, types: ["tilt"], risk: "Info", last_seen: "2025-10-24 12:13", battery: 3.8 },
+      { id: "RG1", name: "Rain Gauge 1", lat: 30.3174, lng: 78.0269, types: ["rain"], risk: "Info", last_seen: "2025-10-24 12:15", battery: 3.8 },
+      { id: "G1", name: "Geophone G1", lat: 30.3157, lng: 78.0236, types: ["geophone"], risk: "Watch", last_seen: "2025-10-24 12:10", battery: 3.6 }
+    ];
+
+    const AREAS = [
+      {
+        id: "Sector-1",
+        name: "Tracked Area 1",
+        risk: "Warning",
+        // Simple polygon near the nodes (demo coordinates)
+        coords: [
+          {lat: 30.3177, lng: 78.0230},
+          {lat: 30.3172, lng: 78.0282},
+          {lat: 30.3137, lng: 78.0288},
+          {lat: 30.3139, lng: 78.0233}
+        ]
+      }
+    ];
+
+    // ----- Map init -----
+    let map;
+    async function initMap() {
+      const center = { lat: 30.3158, lng: 78.0260 }; // Uttarakhand sample
+      map = new google.maps.Map(document.getElementById("map"), {
+        center, zoom: 14, mapTypeId: "terrain",
+        streetViewControl: false, fullscreenControl: false, mapTypeControl: true,
+      });
+
+      addNodes(NODES);
+      addAreas(AREAS);
+      updateDashboard(NODES, AREAS);
+      fitToData(NODES, AREAS);
+    }
+
+    // ----- Helpers -----
+    function addNodes(nodes) {
+      const infowindow = new google.maps.InfoWindow();
+      nodes.forEach(n => {
+        const icon = {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: RISK_COLORS[n.risk] || "#4a4a4a",
+          fillOpacity: 0.95,
+          strokeColor: "#ffffff",
+          strokeWeight: 1.2,
+        };
+        const marker = new google.maps.Marker({
+          position: {lat: n.lat, lng: n.lng},
+          map, title: `${n.name} (${n.id})`,
+          icon
+        });
+        marker.addListener("click", () => {
+          const types = (n.types || []).join(", ");
+          infowindow.setContent(`
+            <div style="min-width:220px">
+              <div style="font-weight:700">${n.name}</div>
+              <div style="font-size:12px;opacity:0.8;margin:2px 0">${n.id} • ${types}</div>
+              <div><b>Risk:</b> <span style="color:${RISK_COLORS[n.risk]}">${n.risk}</span></div>
+              <div><b>Battery:</b> ${n.battery?.toFixed ? n.battery.toFixed(2) : n.battery} V</div>
+              <div><b>Last seen:</b> ${n.last_seen}</div>
+            </div>
+          `);
+          infowindow.open({anchor: marker, map});
+        });
+      });
+    }
+
+    function addAreas(areas) {
+      areas.forEach(a => {
+        const poly = new google.maps.Polygon({
+          paths: a.coords,
+          strokeColor: RISK_COLORS[a.risk] || "#555",
+          strokeOpacity: 0.9,
+          strokeWeight: 2,
+          fillColor: RISK_COLORS[a.risk] || "#555",
+          fillOpacity: 0.18,
+          map,
+        });
+        const labelPos = centroid(a.coords);
+        // Optional label marker
+        new google.maps.Marker({
+          position: labelPos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE, scale: 0.1, // invisible dot
+            fillOpacity: 0, strokeOpacity: 0
+          },
+          label: {
+            text: `${a.name} (${a.risk})`,
+            color: "#1f2937", fontSize: "12px", fontWeight: "600"
+          }
+        });
+      });
+    }
+
+    function centroid(coords) {
+      let x=0, y=0, z=0;
+      coords.forEach(c => {
+        const lat = c.lat * Math.PI / 180;
+        const lng = c.lng * Math.PI / 180;
+        x += Math.cos(lat) * Math.cos(lng);
+        y += Math.cos(lat) * Math.sin(lng);
+        z += Math.sin(lat);
+      });
+      const total = coords.length;
+      x /= total; y /= total; z /= total;
+      const hyp = Math.sqrt(x*x + y*y);
+      const lat = Math.atan2(z, hyp) * 180/Math.PI;
+      const lng = Math.atan2(y, x) * 180/Math.PI;
+      return {lat, lng};
+    }
+
+    function fitToData(nodes, areas) {
+      const bounds = new google.maps.LatLngBounds();
+      nodes.forEach(n => bounds.extend({lat: n.lat, lng: n.lng}));
+      areas.forEach(a => a.coords.forEach(c => bounds.extend(c)));
+      if (!bounds.isEmpty()) map.fitBounds(bounds);
+    }
+
+    function updateDashboard(nodes, areas) {
+      const counts = { Info: 0, Watch: 0, Warning: 0, Evacuate: 0 };
+      nodes.forEach(n => counts[n.risk] = (counts[n.risk] || 0) + 1);
+      const kpis = document.getElementById("kpis");
+      kpis.innerHTML = `
+        <div class="tile" style="background:#009E73"><small>Info</small> <span>${counts.Info||0}</span></div>
+        <div class="tile" style="background:#E69F00"><small>Watch</small> <span>${counts.Watch||0}</span></div>
+        <div class="tile" style="background:#D55E00"><small>Warning</small> <span>${counts.Warning||0}</span></div>
+        <div class="tile" style="background:#9E0000"><small>Evacuate</small> <span>${counts.Evacuate||0}</span></div>
+      `;
+      document.getElementById("nodeCount").textContent = nodes.length;
+      document.getElementById("areaCount").textContent = areas.length;
+    }
+
+    window.initMap = initMap;
+  </script>
+
+  <!-- Replace YOUR_API_KEY and restrict it in Google Cloud -->
+  <script async
+    src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap">
+  </script>
+</body>
+</html>
