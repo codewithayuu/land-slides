@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   MapContainer,
   Marker,
@@ -11,9 +12,7 @@ import {
   useMap,
   type MapContainerProps,
 } from "react-leaflet";
-import MarkerClusterGroup from "react-leaflet-cluster";
 import L, { type DivIcon, type LatLngExpression } from "leaflet";
-import "leaflet.heat";
 
 type Risk = "Info" | "Watch" | "Warning" | "Evacuate";
 type SensorType = "tilt" | "rain" | "geophone";
@@ -44,6 +43,16 @@ const RISK_COLORS: Record<Risk, string> = {
 };
 
 const SENSOR_TYPES: readonly SensorType[] = ["tilt", "rain", "geophone"];
+
+const MarkerClusterGroup = dynamic(
+  () => import("react-leaflet-cluster").then((mod) => mod.default),
+  { ssr: false, loading: () => null }
+) as typeof import("react-leaflet-cluster").default;
+
+const safeUUID = () =>
+  typeof window !== "undefined" && window.crypto && "randomUUID" in window.crypto
+    ? window.crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
 
 const NODES: SensorNode[] = [
   {
@@ -142,13 +151,22 @@ function HeatLayer({
   opacity?: number;
 }) {
   const map = useMap();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    import("leaflet.heat").then(() => {
+      if (!cancelled) setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
     const paneId = "heatPane";
-    let pane = map.getPane(paneId);
-    if (!pane) {
-      pane = map.createPane(paneId);
-    }
+    const pane = map.getPane(paneId) || map.createPane(paneId);
     if (pane) pane.style.opacity = String(opacity);
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
@@ -161,7 +179,7 @@ function HeatLayer({
     return () => {
       map.removeLayer(layer);
     };
-  }, [map, points, radius, opacity]);
+  }, [map, ready, points, radius, opacity]);
 
   return null;
 }
@@ -237,7 +255,13 @@ export default function MapView() {
     [filteredNodes]
   );
 
-  const [fitKey, setFitKey] = useState(generateKey());
+  const [fitKey, setFitKey] = useState<string>(safeUUID());
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as unknown as { L: typeof L }).L = L;
+    }
+  }, []);
 
   const heatPoints: [number, number, number][] = useMemo(
     () => filteredNodes.map((n) => [n.lat, n.lng, riskWeight[n.risk]]),
@@ -388,7 +412,7 @@ export default function MapView() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <div style={{ fontWeight: 700, flex: 1 }}>Filters & Overlays</div>
-          <button onClick={() => setFitKey(generateKey())} style={btnStyle}>
+          <button onClick={() => setFitKey(safeUUID())} style={btnStyle}>
             Fit to data
           </button>
         </div>
@@ -635,10 +659,3 @@ const btnStyle: CSSProperties = {
   background: "#f8fafc",
   cursor: "pointer",
 };
-
-function generateKey() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2);
-}
