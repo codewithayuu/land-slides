@@ -122,13 +122,33 @@ function geophoneIcon(color: string): DivIcon {
 
 function iconForNode(n: SensorNode, flaggedIds: string[]): DivIcon | undefined {
   const isFlag = n.kind === "flag" || flaggedIds.includes(n.id);
-  if (isFlag) return dangerFlagIcon(RISK_COLORS[n.risk]);
+  if (isFlag) return hazardIcon(RISK_COLORS[n.risk]);
   if (n.kind === "checkpoint") return checkpointIcon(RISK_COLORS[n.risk]);
   const primary = n.types[0] || "tilt";
   const c = RISK_COLORS[n.risk];
   if (primary === "rain") return rainIcon(c);
   if (primary === "geophone") return geophoneIcon(c);
   return tiltIcon(c);
+}
+
+function zoneCircleIcon(color: string): DivIcon {
+  const ring = hexToRgba(color, 0.2);
+  const html = `
+    <div class="z-circle">
+      <span class="zc-ring" style="background:${ring}"></span>
+      <span class="zc-dot" style="background:${color}"></span>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
+}
+
+function centroidOf(coords: { lat: number; lng: number }[]): [number, number] {
+  if (!coords.length) return [0, 0];
+  const { sumLat, sumLng } = coords.reduce(
+    (acc, c) => ({ sumLat: acc.sumLat + c.lat, sumLng: acc.sumLng + c.lng }),
+    { sumLat: 0, sumLng: 0 }
+  );
+  return [sumLat / coords.length, sumLng / coords.length];
 }
 
 const SENSOR_TYPES: readonly SensorType[] = ["tilt", "rain", "geophone"];
@@ -411,6 +431,7 @@ export default function MapView() {
   const [selectRect, setSelectRect] = useState<[[number, number], [number, number]] | null>(null);
   const [selName, setSelName] = useState("Selection");
   const [selRisk, setSelRisk] = useState<Risk>("Watch");
+  const [clusterRadius, setClusterRadius] = useState(40);
 
   type MenuTarget = { type: "note" | "checkpoint" | "area"; id: string };
   type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
@@ -476,6 +497,15 @@ export default function MapView() {
       });
       L.Marker.prototype.options.icon = DefaultIcon;
     }
+  }, []);
+
+  // Responsive cluster radius for mobile
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const compute = () => setClusterRadius(window.innerWidth <= 640 ? 32 : 40);
+    compute();
+    window.addEventListener('resize', compute);
+    return () => window.removeEventListener('resize', compute);
   }, []);
 
   // Load persisted state
@@ -615,7 +645,7 @@ export default function MapView() {
         />
 
         {clusterOn ? (
-          <MarkerClusterGroup chunkedLoading maxClusterRadius={40}>
+          <MarkerClusterGroup chunkedLoading maxClusterRadius={clusterRadius}>
             {[...filteredNodes, ...filteredUserNodes].map((n) => (
               <Marker
                 key={n.id}
@@ -793,6 +823,35 @@ export default function MapView() {
               }}
             />
           ))}
+
+        {showPolygons &&
+          allAreas.map((a) => {
+            const [clat, clng] = centroidOf(a.coords);
+            return (
+              <Marker
+                key={`${a.id}-centroid`}
+                position={[clat, clng] as LatLngExpression}
+                icon={zoneCircleIcon(RISK_COLORS[a.risk])}
+                eventHandlers={{
+                  contextmenu: (e) => {
+                    const ev = (e as any).originalEvent as MouseEvent;
+                    const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                      (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                    const x = ev.clientX - rect.left;
+                    const y = ev.clientY - rect.top;
+                    setMenu({ x, y, lat: clat, lng: clng, target: { type: "area", id: a.id } });
+                  },
+                }}
+              >
+                <Popup>
+                  <div style={{ minWidth: 180 }}>
+                    <div style={{ fontWeight: 700 }}>{a.name}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>Risk: <span style={{ color: RISK_COLORS[a.risk] }}>{a.risk}</span></div>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
 
         
 

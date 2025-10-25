@@ -32,12 +32,19 @@ body {
 @keyframes geoPulse { 0% { transform: scale(.6); opacity: .7; } 70% { transform: scale(1.2); opacity: 0; } 100% { transform: scale(.6); opacity: 0; } }
 .ico-center { position: absolute; left: 8px; top: 8px; width: 4px; height: 4px; border-radius: 50%; border: 1px solid #fff; }
 
+/* Zone centroid marker circles */
+.z-circle { position: relative; width: 24px; height: 24px; }
+.zc-ring { position: absolute; inset: 0; border-radius: 50%; animation: dfPulse 1.8s ease-out infinite; }
+.zc-dot { position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+
 /* Responsive overlays */
 .ui-panel { max-width: 360px; }
 @media (max-width: 640px) {
   .ui-panel { width: calc(100vw - 24px); left: 50% !important; right: auto !important; transform: translateX(-50%); }
   .ui-panel-right { top: auto !important; bottom: 12px; }
   .ui-legend { left: 50% !important; transform: translateX(-50%); bottom: 12px; }
+  .ico { width: 18px; height: 18px; }
+  .z-circle { width: 20px; height: 20px; }
 }
 
 .dashboard {
