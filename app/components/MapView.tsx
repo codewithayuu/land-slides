@@ -13,7 +13,7 @@ import {
   useMapEvents,
   type MapContainerProps,
 } from "react-leaflet";
-import L, { type DivIcon, type LatLngExpression } from "leaflet";
+import L, { type LatLngExpression } from "leaflet";
 
 type Risk = "Info" | "Watch" | "Warning" | "Evacuate";
 type SensorType = "tilt" | "rain" | "geophone";
@@ -83,17 +83,6 @@ function MapClicks({
     },
   });
   return null;
-}
-
-function centroid(coords: { lat: number; lng: number }[]): [number, number] {
-  if (!coords.length) return [0, 0];
-  let lat = 0;
-  let lng = 0;
-  coords.forEach((c) => {
-    lat += c.lat;
-    lng += c.lng;
-  });
-  return [lat / coords.length, lng / coords.length];
 }
 
 const safeUUID = () =>
@@ -179,40 +168,7 @@ const AREAS: Area[] = [
   },
 ];
 
-const nodeIcon = (risk: Risk): DivIcon =>
-  L.divIcon({
-    className: "",
-    html: `
-      <div style="position:relative;width:14px;height:16px">
-        <div style="position:absolute;left:6px;top:1px;width:2px;height:14px;background:#222;border-radius:1px"></div>
-        <div style="position:absolute;left:8px;top:2px;width:10px;height:8px;background:${RISK_COLORS[risk]};border:1px solid #fff;border-left:none;box-shadow:0 0 0 1px rgba(0,0,0,0.25)"></div>
-      </div>
-    `,
-    iconSize: [20, 18],
-    iconAnchor: [6, 16],
-    popupAnchor: [8, -10],
-  });
-
-const noteIcon: DivIcon = L.divIcon({
-  className: "",
-  html: `
-    <div style="width:16px;height:16px;border-radius:3px;background:#2563eb;border:2px solid #fff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 0 1px rgba(0,0,0,.25)">✎</div>
-  `,
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-  popupAnchor: [0, -8],
-});
-
-const warnIcon = (risk: Exclude<Risk, "Info" | "Watch">): DivIcon =>
-  L.divIcon({
-    className: "",
-    html: `
-      <div class="alert-badge ${risk === "Evacuate" ? "alert-evacuate" : "alert-warning"} alert-pulse">!</div>
-    `,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-    popupAnchor: [0, -12],
-  });
+// Use default Leaflet marker icons (no custom CSS for initial look)
 
 function HeatLayer({
   points,
@@ -305,7 +261,7 @@ export default function MapView() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatRadius, setHeatRadius] = useState(30);
   const [heatOpacity, setHeatOpacity] = useState(0.6);
-  const [basemap, setBasemap] = useState<"topo" | "hillshade" | "satellite">("hillshade");
+  const [basemap, setBasemap] = useState<"osm" | "topo" | "hillshade" | "satellite">("osm");
   const [hillOpacity, setHillOpacity] = useState(0.6);
 
   // Notes
@@ -399,6 +355,12 @@ export default function MapView() {
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
       <MapContainer {...mapProps}>
+        {basemap === "osm" && (
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+        )}
         {basemap === "topo" && (
           <TileLayer
             attribution="&copy; OpenStreetMap contributors, &copy; OpenTopoMap (CC-BY-SA)"
@@ -464,7 +426,7 @@ export default function MapView() {
               <Marker
                 key={n.id}
                 position={[n.lat, n.lng] as LatLngExpression}
-                icon={nodeIcon(n.risk)}
+                
                 eventHandlers={{
                   contextmenu: (e) => {
                     const ev = (e as any).originalEvent as MouseEvent;
@@ -515,7 +477,7 @@ export default function MapView() {
             <Marker
               key={n.id}
               position={[n.lat, n.lng] as LatLngExpression}
-              icon={nodeIcon(n.risk)}
+              
               eventHandlers={{
                 contextmenu: (e) => {
                   const ev = (e as any).originalEvent as MouseEvent;
@@ -573,12 +535,6 @@ export default function MapView() {
                 opacity: 0.95,
                 fillColor: RISK_COLORS[a.risk],
                 fillOpacity: 0.18,
-                className:
-                  a.risk === "Evacuate"
-                    ? "poly-evacuate"
-                    : a.risk === "Warning"
-                    ? "poly-warning"
-                    : "",
               }}
               eventHandlers={
                 userAreas.some((u) => u.id === a.id)
@@ -597,17 +553,7 @@ export default function MapView() {
             />
           ))}
 
-        {allAreas.map((a) => {
-          if (a.risk === "Info" || a.risk === "Watch") return null;
-          const center = centroid(a.coords);
-          return (
-            <Marker key={a.id + "-warn"} position={center as LatLngExpression} icon={warnIcon(a.risk as any)}>
-              <Popup>
-                <div><b>{a.name}</b><div style={{ color: RISK_COLORS[a.risk] }}>{a.risk}</div></div>
-              </Popup>
-            </Marker>
-          );
-        })}
+        
 
         {showHeatmap && heatPoints.length > 0 && (
           <HeatLayer points={heatPoints} radius={heatRadius} opacity={heatOpacity} />
@@ -617,7 +563,6 @@ export default function MapView() {
           <Marker
             key={n.id}
             position={[n.lat, n.lng] as LatLngExpression}
-            icon={noteIcon}
             eventHandlers={{
               contextmenu: (e) => {
                 const ev = (e as any).originalEvent as MouseEvent;
@@ -780,6 +725,10 @@ export default function MapView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>Basemap</div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <label style={chkStyle}>
+                <input type="radio" name="basemap" checked={basemap === "osm"} onChange={() => setBasemap("osm")} />
+                Standard (OSM)
+              </label>
               <label style={chkStyle}>
                 <input type="radio" name="basemap" checked={basemap === "topo"} onChange={() => setBasemap("topo")} />
                 Topographic
