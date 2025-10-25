@@ -12,9 +12,9 @@ const ContentSecurityPolicy = `
   form-action 'self';
   script-src ${scriptSrc};
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-  img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com;
+  img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.opentopomap.org https://services.arcgisonline.com https://server.arcgisonline.com;
   font-src 'self' https://fonts.gstatic.com data:;
-  connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com;
+  connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://*.tile.opentopomap.org https://services.arcgisonline.com https://server.arcgisonline.com;
 `;
 
 const securityHeaders = [

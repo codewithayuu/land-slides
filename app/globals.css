@@ -38,6 +38,12 @@ body {
   width: 100%;
 }
 
+/* Make hillshade overlay blend naturally with the base map */
+.leaflet-layer.hillshade img {
+  mix-blend-mode: multiply;
+  filter: contrast(1.05) brightness(0.95) saturate(1.05);
+}
+
 .dashboard {
   position: absolute;
   top: 12px;

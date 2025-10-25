@@ -55,20 +55,31 @@ function MapClicks({
   addNoteMode,
   onAddPoint,
   onAddNote,
+  onContextMenu,
+  onDismissMenu,
 }: {
   drawMode: boolean;
   addNoteMode: boolean;
   onAddPoint: (pt: [number, number]) => void;
   onAddNote: (lat: number, lng: number) => void;
+  onContextMenu: (x: number, y: number, lat: number, lng: number) => void;
+  onDismissMenu: () => void;
 }) {
+  const map = useMap();
   useMapEvents({
     click(e) {
+      onDismissMenu();
       const { lat, lng } = e.latlng;
       if (drawMode) {
         onAddPoint([lat, lng]);
       } else if (addNoteMode) {
         onAddNote(lat, lng);
       }
+    },
+    contextmenu(e) {
+      e.originalEvent.preventDefault();
+      const pt = map.latLngToContainerPoint(e.latlng);
+      onContextMenu(pt.x, pt.y, e.latlng.lat, e.latlng.lng);
     },
   });
   return null;
@@ -294,6 +305,8 @@ export default function MapView() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatRadius, setHeatRadius] = useState(30);
   const [heatOpacity, setHeatOpacity] = useState(0.6);
+  const [basemap, setBasemap] = useState<"topo" | "hillshade" | "satellite">("hillshade");
+  const [hillOpacity, setHillOpacity] = useState(0.6);
 
   // Notes
   type Note = { id: string; lat: number; lng: number; text: string; ts: number };
@@ -306,6 +319,11 @@ export default function MapView() {
   const [newAreaName, setNewAreaName] = useState("");
   const [newAreaRisk, setNewAreaRisk] = useState<Risk>("Watch");
   const [userAreas, setUserAreas] = useState<Area[]>([]);
+  const [userNodes, setUserNodes] = useState<SensorNode[]>([]);
+
+  type MenuTarget = { type: "note" | "checkpoint" | "area"; id: string };
+  type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
   const filteredNodes = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -320,14 +338,26 @@ export default function MapView() {
     });
   }, [riskFilter, typeFilter, query]);
 
-  const countsByRisk = useMemo(
-    () =>
-      filteredNodes.reduce(
-        (acc, n) => ({ ...acc, [n.risk]: acc[n.risk] + 1 }),
-        { Info: 0, Watch: 0, Warning: 0, Evacuate: 0 } as Record<Risk, number>
-      ),
-    [filteredNodes]
-  );
+  const filteredUserNodes = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return userNodes.filter((n) => {
+      const riskOk = riskFilter[n.risk];
+      const typeOk = n.types.some((t) => typeFilter[t]);
+      const qOk =
+        !q ||
+        n.id.toLowerCase().includes(q) ||
+        n.name.toLowerCase().includes(q);
+      return riskOk && typeOk && qOk;
+    });
+  }, [userNodes, riskFilter, typeFilter, query]);
+
+  const countsByRisk = useMemo(() => {
+    const all = [...filteredNodes, ...filteredUserNodes];
+    return all.reduce(
+      (acc, n) => ({ ...acc, [n.risk]: acc[n.risk] + 1 }),
+      { Info: 0, Watch: 0, Warning: 0, Evacuate: 0 } as Record<Risk, number>
+    );
+  }, [filteredNodes, filteredUserNodes]);
 
   const [fitKey, setFitKey] = useState<string>(safeUUID());
 
@@ -338,8 +368,13 @@ export default function MapView() {
   }, []);
 
   const heatPoints: [number, number, number][] = useMemo(
-    () => filteredNodes.map((n) => [n.lat, n.lng, riskWeight[n.risk]]),
-    [filteredNodes]
+    () =>
+      [...filteredNodes, ...filteredUserNodes].map((n) => [
+        n.lat,
+        n.lng,
+        riskWeight[n.risk],
+      ]),
+    [filteredNodes, filteredUserNodes]
   );
 
   const resetFilters = () => {
@@ -364,10 +399,38 @@ export default function MapView() {
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
       <MapContainer {...mapProps}>
-        <TileLayer
-          attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-        />
+        {basemap === "topo" && (
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors, &copy; OpenTopoMap (CC-BY-SA)"
+            url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+          />
+        )}
+        {basemap === "hillshade" && (
+          <>
+            <TileLayer
+              attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            />
+            <TileLayer
+              attribution="Tiles &copy; Esri — Source: Esri, USGS, NOAA"
+              url="https://services.arcgisonline.com/ArcGIS/rest/services/World_Hillshade/MapServer/tile/{z}/{y}/{x}"
+              opacity={hillOpacity}
+              className="hillshade"
+            />
+          </>
+        )}
+        {basemap === "satellite" && (
+          <>
+            <TileLayer
+              attribution="Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            />
+            <TileLayer
+              attribution="&copy; CARTO"
+              url="https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png"
+            />
+          </>
+        )}
 
         <MapClicks
           drawMode={drawMode}
@@ -381,21 +444,41 @@ export default function MapView() {
                 { id: safeUUID(), lat, lng, text: text.trim(), ts: Date.now() },
               ]);
           }}
+          onContextMenu={(x, y, lat, lng) => setMenu({ x, y, lat, lng })}
+          onDismissMenu={() => setMenu(null)}
         />
 
         <FitToData
-          nodes={filteredNodes.length ? filteredNodes : NODES}
+          nodes={
+            [...filteredNodes, ...filteredUserNodes].length
+              ? [...filteredNodes, ...filteredUserNodes]
+              : [...NODES, ...userNodes]
+          }
           areas={allAreas}
           enabledKey={fitKey}
         />
 
         {clusterOn ? (
           <MarkerClusterGroup chunkedLoading maxClusterRadius={40}>
-            {filteredNodes.map((n) => (
+            {[...filteredNodes, ...filteredUserNodes].map((n) => (
               <Marker
                 key={n.id}
                 position={[n.lat, n.lng] as LatLngExpression}
                 icon={nodeIcon(n.risk)}
+                eventHandlers={{
+                  contextmenu: (e) => {
+                    const ev = (e as any).originalEvent as MouseEvent;
+                    const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                      (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                    const x = ev.clientX - rect.left;
+                    const y = ev.clientY - rect.top;
+                    if (userNodes.find((u) => u.id === n.id)) {
+                      setMenu({ x, y, lat: n.lat, lng: n.lng, target: { type: "checkpoint", id: n.id } });
+                    } else {
+                      setMenu({ x, y, lat: n.lat, lng: n.lng });
+                    }
+                  },
+                }}
               >
                 <Popup>
                   <div style={{ minWidth: 200 }}>
@@ -413,16 +496,40 @@ export default function MapView() {
                       <b>Last seen:</b> {n.last_seen}
                     </div>
                   </div>
+                  {userNodes.find((u) => u.id === n.id) && (
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        onClick={() => setUserNodes((prev) => prev.filter((u) => u.id !== n.id))}
+                        style={btnStyle}
+                      >
+                        Delete checkpoint
+                      </button>
+                    </div>
+                  )}
                 </Popup>
               </Marker>
             ))}
           </MarkerClusterGroup>
         ) : (
-          filteredNodes.map((n) => (
+          [...filteredNodes, ...filteredUserNodes].map((n) => (
             <Marker
               key={n.id}
               position={[n.lat, n.lng] as LatLngExpression}
               icon={nodeIcon(n.risk)}
+              eventHandlers={{
+                contextmenu: (e) => {
+                  const ev = (e as any).originalEvent as MouseEvent;
+                  const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                    (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                  const x = ev.clientX - rect.left;
+                  const y = ev.clientY - rect.top;
+                  if (userNodes.find((u) => u.id === n.id)) {
+                    setMenu({ x, y, lat: n.lat, lng: n.lng, target: { type: "checkpoint", id: n.id } });
+                  } else {
+                    setMenu({ x, y, lat: n.lat, lng: n.lng });
+                  }
+                },
+              }}
             >
               <Popup>
                 <div style={{ minWidth: 200 }}>
@@ -440,6 +547,16 @@ export default function MapView() {
                     <b>Last seen:</b> {n.last_seen}
                   </div>
                 </div>
+                {userNodes.find((u) => u.id === n.id) && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      onClick={() => setUserNodes((prev) => prev.filter((u) => u.id !== n.id))}
+                      style={btnStyle}
+                    >
+                      Delete checkpoint
+                    </button>
+                  </div>
+                )}
               </Popup>
             </Marker>
           ))
@@ -463,6 +580,20 @@ export default function MapView() {
                     ? "poly-warning"
                     : "",
               }}
+              eventHandlers={
+                userAreas.some((u) => u.id === a.id)
+                  ? {
+                      contextmenu: (e) => {
+                        const ev = (e as any).originalEvent as MouseEvent;
+                        const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                          (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                        const x = ev.clientX - rect.left;
+                        const y = ev.clientY - rect.top;
+                        setMenu({ x, y, lat: (e as any).latlng.lat, lng: (e as any).latlng.lng, target: { type: "area", id: a.id } });
+                      },
+                    }
+                  : undefined
+              }
             />
           ))}
 
@@ -483,7 +614,21 @@ export default function MapView() {
         )}
 
         {notes.map((n) => (
-          <Marker key={n.id} position={[n.lat, n.lng] as LatLngExpression} icon={noteIcon}>
+          <Marker
+            key={n.id}
+            position={[n.lat, n.lng] as LatLngExpression}
+            icon={noteIcon}
+            eventHandlers={{
+              contextmenu: (e) => {
+                const ev = (e as any).originalEvent as MouseEvent;
+                const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                  (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                const x = ev.clientX - rect.left;
+                const y = ev.clientY - rect.top;
+                setMenu({ x, y, lat: n.lat, lng: n.lng, target: { type: "note", id: n.id } });
+              },
+            }}
+          >
             <Popup>
               <div>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Note</div>
@@ -629,6 +774,36 @@ export default function MapView() {
               />
             </div>
           )}
+
+          <div style={{ width: "100%", height: 1, background: "#e5e7eb", margin: "8px 0" }} />
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Basemap</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <label style={chkStyle}>
+                <input type="radio" name="basemap" checked={basemap === "topo"} onChange={() => setBasemap("topo")} />
+                Topographic
+              </label>
+              <label style={chkStyle}>
+                <input type="radio" name="basemap" checked={basemap === "hillshade"} onChange={() => setBasemap("hillshade")} />
+                Hillshade + Labels
+              </label>
+              <label style={chkStyle}>
+                <input type="radio" name="basemap" checked={basemap === "satellite"} onChange={() => setBasemap("satellite")} />
+                Satellite + Labels
+              </label>
+            </div>
+            {basemap === "hillshade" && (
+              <LabeledRange
+                label="Shade"
+                min={0.2}
+                max={1}
+                step={0.05}
+                value={hillOpacity}
+                onChange={(v) => setHillOpacity(Number(v))}
+              />
+            )}
+          </div>
 
           <div style={{ width: "100%", height: 1, background: "#e5e7eb", margin: "8px 0" }} />
 
@@ -778,6 +953,143 @@ export default function MapView() {
           </div>
         )}
       </div>
+
+      {menu && (
+        <div
+          style={{
+            position: "absolute",
+            left: menu.x,
+            top: menu.y,
+            zIndex: 2000,
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            boxShadow: "0 12px 24px rgba(0,0,0,0.15)",
+            overflow: "hidden",
+            minWidth: 200,
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {(() => {
+            const Item = ({ label, onClick }: { label: string; onClick: () => void }) => (
+              <button
+                onClick={() => {
+                  onClick();
+                  setMenu(null);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 12px",
+                  border: 0,
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            );
+
+            const addCheckpoint = () => {
+              const name = window.prompt("Checkpoint name") || `Checkpoint ${safeUUID().slice(0, 4)}`;
+              const r = (window.prompt("Risk (Info/Watch/Warning/Evacuate)", "Watch") || "Watch").toLowerCase();
+              const proper = (r.charAt(0).toUpperCase() + r.slice(1)) as Risk;
+              const risk: Risk = ["Info", "Watch", "Warning", "Evacuate"].includes(proper) ? proper : "Watch";
+              setUserNodes((prev) => [
+                ...prev,
+                {
+                  id: safeUUID(),
+                  name,
+                  lat: menu.lat,
+                  lng: menu.lng,
+                  types: ["tilt"],
+                  risk,
+                  last_seen: new Date().toISOString().slice(0, 16).replace("T", " "),
+                  battery: 3.8,
+                },
+              ]);
+            };
+
+            const addVertex = () => setDrawing((d) => [...d, [menu.lat, menu.lng]]);
+            const undoVertex = () => setDrawing((d) => d.slice(0, -1));
+            const finishArea = () => {
+              if (drawing.length < 3) return;
+              const nm = window.prompt("Area name", newAreaName) || "New area";
+              const r = (window.prompt("Risk (Info/Watch/Warning/Evacuate)", newAreaRisk) || "Watch").toLowerCase();
+              const proper = (r.charAt(0).toUpperCase() + r.slice(1)) as Risk;
+              const risk: Risk = ["Info", "Watch", "Warning", "Evacuate"].includes(proper) ? proper : "Watch";
+              const id = `UA-${safeUUID().slice(0, 6)}`;
+              const coords = drawing.map((p) => ({ lat: p[0], lng: p[1] }));
+              setUserAreas((prev) => [...prev, { id, name: nm, risk, coords }]);
+              setDrawing([]);
+              setNewAreaName("");
+              setNewAreaRisk("Watch");
+              setDrawMode(false);
+            };
+
+            if (menu.target?.type === "checkpoint") {
+              return (
+                <Item
+                  label="Delete checkpoint"
+                  onClick={() => setUserNodes((prev) => prev.filter((u) => u.id !== menu.target!.id))}
+                />
+              );
+            }
+            if (menu.target?.type === "note") {
+              return (
+                <Item label="Delete note" onClick={() => setNotes((prev) => prev.filter((n) => n.id !== menu.target!.id))} />
+              );
+            }
+            if (menu.target?.type === "area") {
+              return (
+                <Item
+                  label="Delete area"
+                  onClick={() => setUserAreas((prev) => prev.filter((a) => a.id !== menu.target!.id))}
+                />
+              );
+            }
+
+            return (
+              <div>
+                {drawMode ? (
+                  <>
+                    <Item label="Add vertex here" onClick={addVertex} />
+                    {drawing.length > 0 && <Item label="Undo last vertex" onClick={undoVertex} />}
+                    {drawing.length >= 3 && <Item label="Finish area" onClick={finishArea} />}
+                    <Item
+                      label="Cancel drawing"
+                      onClick={() => {
+                        setDrawing([]);
+                        setDrawMode(false);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Item
+                      label="Start draw area & add first vertex here"
+                      onClick={() => {
+                        setDrawMode(true);
+                        setDrawing([[menu.lat, menu.lng]]);
+                      }}
+                    />
+                    <Item label="Add note here" onClick={() => {
+                      const text = window.prompt("Note text");
+                      if (text && text.trim())
+                        setNotes((prev) => [
+                          ...prev,
+                          { id: safeUUID(), lat: menu.lat, lng: menu.lng, text: text.trim(), ts: Date.now() },
+                        ]);
+                    }} />
+                    <Item label="Add checkpoint here" onClick={addCheckpoint} />
+                  </>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
