@@ -1,6 +1,7 @@
 const isProd = process.env.NODE_ENV === 'production';
 const scriptSrc = [
   "'self'",
+  "'unsafe-inline'",
   ...(isProd ? [] : ["'unsafe-eval'"]),
 ].join(' ');
 
