@@ -301,6 +301,9 @@ export default function MapView() {
   type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
   const [menu, setMenu] = useState<MenuState | null>(null);
 
+  const markerPropsFor = (n: SensorNode): { icon?: DivIcon } =>
+    flagIds.includes(n.id) ? { icon: dangerFlagIcon(RISK_COLORS[n.risk]) } : {};
+
   const filteredNodes = useMemo(() => {
     const q = query.trim().toLowerCase();
     return NODES.filter((n) => {
@@ -470,14 +473,11 @@ export default function MapView() {
 
         {clusterOn ? (
           <MarkerClusterGroup chunkedLoading maxClusterRadius={40}>
-            {[...filteredNodes, ...filteredUserNodes].map((n) => {
-              const isFlag = flagIds.includes(n.id);
-              const markerIcon = isFlag ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined;
-              return (
+            {[...filteredNodes, ...filteredUserNodes].map((n) => (
               <Marker
                 key={n.id}
                 position={[n.lat, n.lng] as LatLngExpression}
-                icon={markerIcon}
+                {...markerPropsFor(n)}
                 eventHandlers={{
                   contextmenu: (e) => {
                     const ev = (e as any).originalEvent as MouseEvent;
@@ -521,18 +521,14 @@ export default function MapView() {
                   )}
                 </Popup>
               </Marker>
-              );
-            })}
+            ))}
           </MarkerClusterGroup>
         ) : (
-          [...filteredNodes, ...filteredUserNodes].map((n) => {
-            const isFlag = flagIds.includes(n.id);
-            const markerIcon = isFlag ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined;
-            return (
+          [...filteredNodes, ...filteredUserNodes].map((n) => (
             <Marker
               key={n.id}
               position={[n.lat, n.lng] as LatLngExpression}
-              icon={markerIcon}
+              {...markerPropsFor(n)}
               eventHandlers={{
                 contextmenu: (e) => {
                   const ev = (e as any).originalEvent as MouseEvent;
@@ -576,8 +572,7 @@ export default function MapView() {
                 )}
               </Popup>
             </Marker>
-            );
-          })
+          ))
         )}
 
         {showPolygons &&
