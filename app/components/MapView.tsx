@@ -470,11 +470,14 @@ export default function MapView() {
 
         {clusterOn ? (
           <MarkerClusterGroup chunkedLoading maxClusterRadius={40}>
-            {[...filteredNodes, ...filteredUserNodes].map((n) => (
+            {[...filteredNodes, ...filteredUserNodes].map((n) => {
+              const isFlag = flagIds.includes(n.id);
+              const markerIcon = isFlag ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined;
+              return (
               <Marker
                 key={n.id}
                 position={[n.lat, n.lng] as LatLngExpression}
-                icon={flagIds.includes(n.id) ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined}
+                icon={markerIcon}
                 eventHandlers={{
                   contextmenu: (e) => {
                     const ev = (e as any).originalEvent as MouseEvent;
@@ -518,14 +521,18 @@ export default function MapView() {
                   )}
                 </Popup>
               </Marker>
-            ))}
+              );
+            })}
           </MarkerClusterGroup>
         ) : (
-          [...filteredNodes, ...filteredUserNodes].map((n) => (
+          [...filteredNodes, ...filteredUserNodes].map((n) => {
+            const isFlag = flagIds.includes(n.id);
+            const markerIcon = isFlag ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined;
+            return (
             <Marker
               key={n.id}
               position={[n.lat, n.lng] as LatLngExpression}
-              icon={flagIds.includes(n.id) ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined}
+              icon={markerIcon}
               eventHandlers={{
                 contextmenu: (e) => {
                   const ev = (e as any).originalEvent as MouseEvent;
@@ -569,7 +576,8 @@ export default function MapView() {
                 )}
               </Popup>
             </Marker>
-          ))
+            );
+          })
         )}
 
         {showPolygons &&
