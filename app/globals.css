@@ -43,7 +43,7 @@ body {
   .ui-panel { width: calc(100vw - 24px); left: 50% !important; right: auto !important; transform: translateX(-50%); }
   .ui-panel-left { top: 12px !important; }
   .ui-panel-right { top: auto !important; bottom: 96px; }
-  .ui-legend { left: 50% !important; transform: translateX(-50%); bottom: 12px; }
+  .ui-legend { display: none !important; }
   .ico { width: 18px; height: 18px; }
   .z-circle { width: 20px; height: 20px; }
 }
