@@ -13,7 +13,7 @@ import {
   useMapEvents,
   type MapContainerProps,
 } from "react-leaflet";
-import L, { type LatLngExpression } from "leaflet";
+import L, { type LatLngExpression, type DivIcon } from "leaflet";
 
 type Risk = "Info" | "Watch" | "Warning" | "Evacuate";
 type SensorType = "tilt" | "rain" | "geophone";
@@ -42,6 +42,25 @@ const RISK_COLORS: Record<Risk, string> = {
   Warning: "#D55E00",
   Evacuate: "#9E0000",
 };
+
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function dangerFlagIcon(color: string): DivIcon {
+  const ring = hexToRgba(color, 0.45);
+  const html = `
+    <div class="df-wrap">
+      <span class="df-ring" style="background:${ring}"></span>
+      <span class="df-dot" style="background:${color}"></span>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -9] });
+}
 
 const SENSOR_TYPES: readonly SensorType[] = ["tilt", "rain", "geophone"];
 
@@ -276,6 +295,7 @@ export default function MapView() {
   const [newAreaRisk, setNewAreaRisk] = useState<Risk>("Watch");
   const [userAreas, setUserAreas] = useState<Area[]>([]);
   const [userNodes, setUserNodes] = useState<SensorNode[]>([]);
+  const [flagIds, setFlagIds] = useState<string[]>([]);
 
   type MenuTarget = { type: "note" | "checkpoint" | "area"; id: string };
   type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
@@ -322,6 +342,34 @@ export default function MapView() {
       (window as unknown as { L: typeof L }).L = L;
     }
   }, []);
+
+  // Load persisted state
+  useEffect(() => {
+    try {
+      const a = localStorage.getItem("ls_user_areas");
+      if (a) setUserAreas(JSON.parse(a));
+      const n = localStorage.getItem("ls_user_nodes");
+      if (n) setUserNodes(JSON.parse(n));
+      const t = localStorage.getItem("ls_notes");
+      if (t) setNotes(JSON.parse(t));
+      const f = localStorage.getItem("ls_flag_ids");
+      if (f) setFlagIds(JSON.parse(f));
+    } catch {}
+  }, []);
+
+  // Persist state
+  useEffect(() => {
+    try { localStorage.setItem("ls_user_areas", JSON.stringify(userAreas)); } catch {}
+  }, [userAreas]);
+  useEffect(() => {
+    try { localStorage.setItem("ls_user_nodes", JSON.stringify(userNodes)); } catch {}
+  }, [userNodes]);
+  useEffect(() => {
+    try { localStorage.setItem("ls_notes", JSON.stringify(notes)); } catch {}
+  }, [notes]);
+  useEffect(() => {
+    try { localStorage.setItem("ls_flag_ids", JSON.stringify(flagIds)); } catch {}
+  }, [flagIds]);
 
   const heatPoints: [number, number, number][] = useMemo(
     () =>
@@ -426,7 +474,7 @@ export default function MapView() {
               <Marker
                 key={n.id}
                 position={[n.lat, n.lng] as LatLngExpression}
-                
+                icon={flagIds.includes(n.id) ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined}
                 eventHandlers={{
                   contextmenu: (e) => {
                     const ev = (e as any).originalEvent as MouseEvent;
@@ -477,7 +525,7 @@ export default function MapView() {
             <Marker
               key={n.id}
               position={[n.lat, n.lng] as LatLngExpression}
-              
+              icon={flagIds.includes(n.id) ? dangerFlagIcon(RISK_COLORS[n.risk]) : undefined}
               eventHandlers={{
                 contextmenu: (e) => {
                   const ev = (e as any).originalEvent as MouseEvent;
@@ -585,6 +633,7 @@ export default function MapView() {
       </MapContainer>
 
       <div
+        className="ui-panel ui-panel-left"
         style={{
           position: "absolute",
           top: 12,
@@ -608,6 +657,7 @@ export default function MapView() {
       </div>
 
       <div
+        className="ui-panel ui-panel-right"
         style={{
           position: "absolute",
           top: 12,
@@ -858,6 +908,7 @@ export default function MapView() {
       </div>
 
       <div
+        className="ui-legend"
         style={{
           position: "absolute",
           bottom: 14,
@@ -978,10 +1029,15 @@ export default function MapView() {
             };
 
             if (menu.target?.type === "checkpoint") {
+              const id = menu.target!.id;
+              const isFlag = flagIds.includes(id);
               return (
                 <Item
-                  label="Delete checkpoint"
-                  onClick={() => setUserNodes((prev) => prev.filter((u) => u.id !== menu.target!.id))}
+                  label={isFlag ? "Delete danger flag" : "Delete checkpoint"}
+                  onClick={() => {
+                    if (isFlag) setFlagIds((prev) => prev.filter((x) => x !== id));
+                    setUserNodes((prev) => prev.filter((u) => u.id !== id));
+                  }}
                 />
               );
             }
@@ -998,6 +1054,28 @@ export default function MapView() {
                 />
               );
             }
+
+            const addDangerFlag = () => {
+              const name = window.prompt("Flag name", "Danger Flag") || "Danger Flag";
+              const r = (window.prompt("Risk (Watch/Warning/Evacuate)", "Warning") || "Warning").toLowerCase();
+              const proper = (r.charAt(0).toUpperCase() + r.slice(1)) as Risk;
+              const risk: Risk = ["Watch", "Warning", "Evacuate"].includes(proper as any) ? proper : "Warning";
+              const id = safeUUID();
+              setUserNodes((prev) => [
+                ...prev,
+                {
+                  id,
+                  name,
+                  lat: menu.lat,
+                  lng: menu.lng,
+                  types: ["tilt"],
+                  risk,
+                  last_seen: new Date().toISOString().slice(0, 16).replace("T", " "),
+                  battery: 3.8,
+                },
+              ]);
+              setFlagIds((prev) => [...prev, id]);
+            };
 
             return (
               <div>
@@ -1032,6 +1110,7 @@ export default function MapView() {
                         ]);
                     }} />
                     <Item label="Add checkpoint here" onClick={addCheckpoint} />
+                    <Item label="Add danger flag here" onClick={addDangerFlag} />
                   </>
                 )}
               </div>
