@@ -10,6 +10,7 @@ import {
   Popup,
   TileLayer,
   useMap,
+  useMapEvents,
   type MapContainerProps,
 } from "react-leaflet";
 import L, { type DivIcon, type LatLngExpression } from "leaflet";
@@ -48,6 +49,41 @@ const MarkerClusterGroup = dynamic(
   () => import("react-leaflet-cluster").then((mod) => mod.default),
   { ssr: false, loading: () => null }
 ) as typeof import("react-leaflet-cluster").default;
+
+function MapClicks({
+  drawMode,
+  addNoteMode,
+  onAddPoint,
+  onAddNote,
+}: {
+  drawMode: boolean;
+  addNoteMode: boolean;
+  onAddPoint: (pt: [number, number]) => void;
+  onAddNote: (lat: number, lng: number) => void;
+}) {
+  useMapEvents({
+    click(e) {
+      const { lat, lng } = e.latlng;
+      if (drawMode) {
+        onAddPoint([lat, lng]);
+      } else if (addNoteMode) {
+        onAddNote(lat, lng);
+      }
+    },
+  });
+  return null;
+}
+
+function centroid(coords: { lat: number; lng: number }[]): [number, number] {
+  if (!coords.length) return [0, 0];
+  let lat = 0;
+  let lng = 0;
+  coords.forEach((c) => {
+    lat += c.lat;
+    lng += c.lng;
+  });
+  return [lat / coords.length, lng / coords.length];
+}
 
 const safeUUID = () =>
   typeof window !== "undefined" && window.crypto && "randomUUID" in window.crypto
@@ -135,10 +171,36 @@ const AREAS: Area[] = [
 const nodeIcon = (risk: Risk): DivIcon =>
   L.divIcon({
     className: "",
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:${RISK_COLORS[risk]};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.25)"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-    popupAnchor: [0, -8],
+    html: `
+      <div style="position:relative;width:14px;height:16px">
+        <div style="position:absolute;left:6px;top:1px;width:2px;height:14px;background:#222;border-radius:1px"></div>
+        <div style="position:absolute;left:8px;top:2px;width:10px;height:8px;background:${RISK_COLORS[risk]};border:1px solid #fff;border-left:none;box-shadow:0 0 0 1px rgba(0,0,0,0.25)"></div>
+      </div>
+    `,
+    iconSize: [20, 18],
+    iconAnchor: [6, 16],
+    popupAnchor: [8, -10],
+  });
+
+const noteIcon: DivIcon = L.divIcon({
+  className: "",
+  html: `
+    <div style="width:16px;height:16px;border-radius:3px;background:#2563eb;border:2px solid #fff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 0 1px rgba(0,0,0,.25)">✎</div>
+  `,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+  popupAnchor: [0, -8],
+});
+
+const warnIcon = (risk: Exclude<Risk, "Info" | "Watch">): DivIcon =>
+  L.divIcon({
+    className: "",
+    html: `
+      <div class="alert-badge ${risk === "Evacuate" ? "alert-evacuate" : "alert-warning"} alert-pulse">!</div>
+    `,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -12],
   });
 
 function HeatLayer({
@@ -233,6 +295,18 @@ export default function MapView() {
   const [heatRadius, setHeatRadius] = useState(30);
   const [heatOpacity, setHeatOpacity] = useState(0.6);
 
+  // Notes
+  type Note = { id: string; lat: number; lng: number; text: string; ts: number };
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [addNoteMode, setAddNoteMode] = useState(false);
+
+  // Draw Area
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawing, setDrawing] = useState<[number, number][]>([]);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [newAreaRisk, setNewAreaRisk] = useState<Risk>("Watch");
+  const [userAreas, setUserAreas] = useState<Area[]>([]);
+
   const filteredNodes = useMemo(() => {
     const q = query.trim().toLowerCase();
     return NODES.filter((n) => {
@@ -285,17 +359,33 @@ export default function MapView() {
     preferCanvas: true,
   };
 
+  const allAreas = useMemo(() => [...AREAS, ...userAreas], [userAreas]);
+
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
       <MapContainer {...mapProps}>
         <TileLayer
-          attribution="&copy; OpenStreetMap contributors"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+        />
+
+        <MapClicks
+          drawMode={drawMode}
+          addNoteMode={addNoteMode}
+          onAddPoint={(pt) => setDrawing((d) => [...d, pt])}
+          onAddNote={(lat, lng) => {
+            const text = window.prompt("Note text");
+            if (text && text.trim())
+              setNotes((prev) => [
+                ...prev,
+                { id: safeUUID(), lat, lng, text: text.trim(), ts: Date.now() },
+              ]);
+          }}
         />
 
         <FitToData
           nodes={filteredNodes.length ? filteredNodes : NODES}
-          areas={AREAS}
+          areas={allAreas}
           enabledKey={fitKey}
         />
 
@@ -356,7 +446,7 @@ export default function MapView() {
         )}
 
         {showPolygons &&
-          AREAS.map((a) => (
+          allAreas.map((a) => (
             <Polygon
               key={a.id}
               positions={a.coords.map((c) => [c.lat, c.lng] as [number, number])}
@@ -366,13 +456,42 @@ export default function MapView() {
                 opacity: 0.95,
                 fillColor: RISK_COLORS[a.risk],
                 fillOpacity: 0.18,
+                className:
+                  a.risk === "Evacuate"
+                    ? "poly-evacuate"
+                    : a.risk === "Warning"
+                    ? "poly-warning"
+                    : "",
               }}
             />
           ))}
 
+        {allAreas.map((a) => {
+          if (a.risk === "Info" || a.risk === "Watch") return null;
+          const center = centroid(a.coords);
+          return (
+            <Marker key={a.id + "-warn"} position={center as LatLngExpression} icon={warnIcon(a.risk as any)}>
+              <Popup>
+                <div><b>{a.name}</b><div style={{ color: RISK_COLORS[a.risk] }}>{a.risk}</div></div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
         {showHeatmap && heatPoints.length > 0 && (
           <HeatLayer points={heatPoints} radius={heatRadius} opacity={heatOpacity} />
         )}
+
+        {notes.map((n) => (
+          <Marker key={n.id} position={[n.lat, n.lng] as LatLngExpression} icon={noteIcon}>
+            <Popup>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Note</div>
+                <div style={{ maxWidth: 220 }}>{n.text}</div>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
 
       <div
@@ -510,6 +629,107 @@ export default function MapView() {
               />
             </div>
           )}
+
+          <div style={{ width: "100%", height: 1, background: "#e5e7eb", margin: "8px 0" }} />
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={chkStyle}>
+              <input
+                type="checkbox"
+                checked={drawMode}
+                onChange={() => {
+                  setDrawMode((p) => !p);
+                  setDrawing([]);
+                }}
+              />
+              Draw area
+            </label>
+            <label style={chkStyle}>
+              <input
+                type="checkbox"
+                checked={addNoteMode}
+                onChange={() => setAddNoteMode((p) => !p)}
+              />
+              Add note
+            </label>
+          </div>
+
+          {drawMode && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                Click on the map to add vertices. Minimum 3 points.
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <input
+                  placeholder="Area name"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  style={inputStyle}
+                />
+                <select
+                  value={newAreaRisk}
+                  onChange={(e) => setNewAreaRisk(e.target.value as Risk)}
+                  style={{ ...inputStyle, width: 120 }}
+                >
+                  {(["Info", "Watch", "Warning", "Evacuate"] as Risk[]).map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  disabled={drawing.length < 3 || !newAreaName.trim()}
+                  onClick={() => {
+                    const id = `UA-${safeUUID().slice(0, 6)}`;
+                    const coords = drawing.map((p) => ({ lat: p[0], lng: p[1] }));
+                    setUserAreas((prev) => [
+                      ...prev,
+                      { id, name: newAreaName.trim(), risk: newAreaRisk, coords },
+                    ]);
+                    setDrawing([]);
+                    setNewAreaName("");
+                    setNewAreaRisk("Watch");
+                    setDrawMode(false);
+                  }}
+                  style={btnStyle}
+                >
+                  Finish & save ({drawing.length})
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawing([]);
+                    setDrawMode(false);
+                  }}
+                  style={btnStyle}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section title="Notes">
+          <div style={{ fontSize: 12, color: "#6b7280", width: "100%" }}>
+            {notes.length === 0 ? "No notes yet" : `${notes.length} note(s)`}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+            {notes.map((n) => (
+              <div key={n.id} style={{ display: "flex", gap: 8, alignItems: "center", width: "100%" }}>
+                <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {n.text}
+                </div>
+                <button
+                  onClick={() => setNotes((prev) => prev.filter((x) => x.id !== n.id))}
+                  style={btnStyle}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
         </Section>
       </div>
 
