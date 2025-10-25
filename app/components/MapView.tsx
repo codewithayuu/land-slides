@@ -14,6 +14,9 @@ import {
   type MapContainerProps,
 } from "react-leaflet";
 import L, { type LatLngExpression, type DivIcon } from "leaflet";
+import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
+import markerIconUrl from "leaflet/dist/images/marker-icon.png";
+import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 
 type Risk = "Info" | "Watch" | "Warning" | "Evacuate";
 type SensorType = "tilt" | "rain" | "geophone";
@@ -343,6 +346,18 @@ export default function MapView() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       (window as unknown as { L: typeof L }).L = L;
+      const DefaultIcon = L.icon({
+        iconUrl: typeof markerIconUrl === "string" ? markerIconUrl : markerIconUrl.src,
+        iconRetinaUrl:
+          typeof markerIcon2xUrl === "string" ? markerIcon2xUrl : markerIcon2xUrl.src,
+        shadowUrl:
+          typeof markerShadowUrl === "string" ? markerShadowUrl : markerShadowUrl.src,
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
+      });
+      L.Marker.prototype.options.icon = DefaultIcon;
     }
   }, []);
 
