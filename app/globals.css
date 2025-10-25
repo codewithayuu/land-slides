@@ -20,6 +20,18 @@ body {
 .df-dot { position: absolute; left: 5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
 @keyframes dfPulse { 0% { transform: scale(.7); opacity: .9; } 70% { transform: scale(1.4); opacity: 0; } 100% { transform: scale(.7); opacity: 0; } }
 
+/* Sensor icons */
+.ico { position: relative; width: 20px; height: 20px; }
+.ico-ring { position: absolute; inset: 0; border-radius: 50%; animation: dfPulse 1.8s ease-out infinite; }
+.ico-tilt-core { position: absolute; left: 7px; top: 4px; width: 6px; height: 12px; border-left: 2px solid; border-right: 2px solid; transform: rotate(-10deg); background: #fff; }
+.ico-drop { position: absolute; left: 6px; top: 3px; width: 8px; height: 12px; border-radius: 4px 4px 6px 6px; transform: rotate(20deg) scale(0.95); }
+.ico-ripple { position: absolute; left: 2px; bottom: 1px; width: 16px; height: 8px; border: 2px solid; border-top: none; border-radius: 0 0 8px 8px; opacity: .7; animation: ripple 1.8s ease-out infinite; }
+@keyframes ripple { 0% { transform: scaleX(.7); opacity: .8; } 60% { transform: scaleX(1.1); opacity: 0; } 100% { transform: scaleX(.7); opacity: 0; } }
+.ico-pulse, .ico-pulse2 { position: absolute; left: 1px; top: 1px; width: 18px; height: 18px; border: 2px solid; border-radius: 50%; opacity: .7; animation: geoPulse 1.6s ease-out infinite; }
+.ico-pulse2 { animation-delay: .4s; }
+@keyframes geoPulse { 0% { transform: scale(.6); opacity: .7; } 70% { transform: scale(1.2); opacity: 0; } 100% { transform: scale(.6); opacity: 0; } }
+.ico-center { position: absolute; left: 8px; top: 8px; width: 4px; height: 4px; border-radius: 50%; border: 1px solid #fff; }
+
 /* Responsive overlays */
 .ui-panel { max-width: 360px; }
 @media (max-width: 640px) {

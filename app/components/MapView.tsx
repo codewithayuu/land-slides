@@ -84,12 +84,51 @@ function hazardIcon(color: string): DivIcon {
   return L.divIcon({ className: "", html, iconSize: [18, 18], iconAnchor: [9, 18], popupAnchor: [0, -12] });
 }
 
+function tiltIcon(color: string): DivIcon {
+  const ring = hexToRgba(color, 0.35);
+  const html = `
+    <div class="ico ico-tilt">
+      <span class="ico-ring" style="background:${ring}"></span>
+      <span class="ico-tilt-core" style="border-color:${color}"></span>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [20, 20], iconAnchor: [10, 18], popupAnchor: [0, -10] });
+}
+
+function rainIcon(color: string): DivIcon {
+  const ring = hexToRgba(color, 0.35);
+  const html = `
+    <div class="ico ico-rain">
+      <span class="ico-ring" style="background:${ring}"></span>
+      <span class="ico-drop" style="background:${color}"></span>
+      <span class="ico-ripple" style="border-color:${color}"></span>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [20, 20], iconAnchor: [10, 18], popupAnchor: [0, -10] });
+}
+
+function geophoneIcon(color: string): DivIcon {
+  const ring = hexToRgba(color, 0.35);
+  const html = `
+    <div class="ico ico-geo">
+      <span class="ico-ring" style="background:${ring}"></span>
+      <span class="ico-pulse" style="border-color:${color}"></span>
+      <span class="ico-pulse2" style="border-color:${color}"></span>
+      <span class="ico-center" style="background:${color}"></span>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [20, 20], iconAnchor: [10, 18], popupAnchor: [0, -10] });
+}
+
 function iconForNode(n: SensorNode, flaggedIds: string[]): DivIcon | undefined {
   const isFlag = n.kind === "flag" || flaggedIds.includes(n.id);
   if (isFlag) return dangerFlagIcon(RISK_COLORS[n.risk]);
   if (n.kind === "checkpoint") return checkpointIcon(RISK_COLORS[n.risk]);
-  if (n.risk === "Evacuate") return hazardIcon(RISK_COLORS[n.risk]);
-  return undefined;
+  const primary = n.types[0] || "tilt";
+  const c = RISK_COLORS[n.risk];
+  if (primary === "rain") return rainIcon(c);
+  if (primary === "geophone") return geophoneIcon(c);
+  return tiltIcon(c);
 }
 
 const SENSOR_TYPES: readonly SensorType[] = ["tilt", "rain", "geophone"];
@@ -561,7 +600,7 @@ export default function MapView() {
         {selectRect && (
           <Rectangle
             bounds={selectRect as unknown as any}
-            pathOptions={{ color: "#2563eb", weight: 1, fillOpacity: 0.1 }}
+            pathOptions={{ color: RISK_COLORS[selRisk], weight: 1, fillOpacity: 0.12, fillColor: RISK_COLORS[selRisk] }}
           />
         )}
 
@@ -737,25 +776,21 @@ export default function MapView() {
               positions={a.coords.map((c) => [c.lat, c.lng] as [number, number])}
               pathOptions={{
                 color: RISK_COLORS[a.risk],
+                fillColor: RISK_COLORS[a.risk],
+                fillOpacity: 0.15,
                 weight: 2,
                 opacity: 0.95,
-                fillColor: RISK_COLORS[a.risk],
-                fillOpacity: 0.18,
               }}
-              eventHandlers={
-                userAreas.some((u) => u.id === a.id)
-                  ? {
-                      contextmenu: (e) => {
-                        const ev = (e as any).originalEvent as MouseEvent;
-                        const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
-                          (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
-                        const x = ev.clientX - rect.left;
-                        const y = ev.clientY - rect.top;
-                        setMenu({ x, y, lat: (e as any).latlng.lat, lng: (e as any).latlng.lng, target: { type: "area", id: a.id } });
-                      },
-                    }
-                  : undefined
-              }
+              eventHandlers={{
+                contextmenu: (e) => {
+                  const ev = (e as any).originalEvent as MouseEvent;
+                  const rect = ((e as any).target?._map?._container as HTMLElement)?.getBoundingClientRect?.() ||
+                    (document.querySelector('.leaflet-container') as HTMLElement).getBoundingClientRect();
+                  const x = ev.clientX - rect.left;
+                  const y = ev.clientY - rect.top;
+                  setMenu({ x, y, lat: (e as any).latlng.lat, lng: (e as any).latlng.lng, target: { type: "area", id: a.id } });
+                },
+              }}
             />
           ))}
 
