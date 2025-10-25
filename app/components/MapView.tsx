@@ -56,30 +56,30 @@ const safeUUID = () =>
 
 const NODES: SensorNode[] = [
   {
-    id: "A1",
-    name: "Node A1 — Crown",
-    lat: 30.3162,
-    lng: 78.0248,
+    id: "U1",
+    name: "Uttarkashi — Town North",
+    lat: 30.728,
+    lng: 78.443,
     types: ["tilt", "rain"],
     risk: "Watch",
     last_seen: "2025-10-24 12:15",
     battery: 3.9,
   },
   {
-    id: "A2",
-    name: "Node A2 — Mid-slope",
-    lat: 30.3151,
-    lng: 78.0264,
+    id: "U2",
+    name: "Gangori Slope",
+    lat: 30.715,
+    lng: 78.433,
     types: ["tilt", "geophone"],
     risk: "Warning",
     last_seen: "2025-10-24 12:14",
     battery: 3.7,
   },
   {
-    id: "A3",
-    name: "Node A3 — Toe",
-    lat: 30.3144,
-    lng: 78.0278,
+    id: "U3",
+    name: "Netala Ridge",
+    lat: 30.789,
+    lng: 78.447,
     types: ["tilt"],
     risk: "Info",
     last_seen: "2025-10-24 12:13",
@@ -87,9 +87,9 @@ const NODES: SensorNode[] = [
   },
   {
     id: "RG1",
-    name: "Rain Gauge 1",
-    lat: 30.3174,
-    lng: 78.0269,
+    name: "Rain Gauge — Bhatwari",
+    lat: 30.791,
+    lng: 78.561,
     types: ["rain"],
     risk: "Info",
     last_seen: "2025-10-24 12:15",
@@ -97,9 +97,9 @@ const NODES: SensorNode[] = [
   },
   {
     id: "G1",
-    name: "Geophone G1",
-    lat: 30.3157,
-    lng: 78.0236,
+    name: "Geophone — Maneri",
+    lat: 30.75,
+    lng: 78.449,
     types: ["geophone"],
     risk: "Watch",
     last_seen: "2025-10-24 12:10",
@@ -110,24 +110,24 @@ const NODES: SensorNode[] = [
 const AREAS: Area[] = [
   {
     id: "Sector-1",
-    name: "Tracked Area 1",
+    name: "Uttarkashi Ridge",
     risk: "Warning",
     coords: [
-      { lat: 30.3177, lng: 78.023 },
-      { lat: 30.3172, lng: 78.0282 },
-      { lat: 30.3137, lng: 78.0288 },
-      { lat: 30.3139, lng: 78.0233 },
+      { lat: 30.735, lng: 78.43 },
+      { lat: 30.745, lng: 78.455 },
+      { lat: 30.719, lng: 78.465 },
+      { lat: 30.713, lng: 78.44 },
     ],
   },
   {
     id: "Sector-2",
-    name: "Tracked Area 2",
+    name: "Bhatwari Hills",
     risk: "Evacuate",
     coords: [
-      { lat: 30.3186, lng: 78.0226 },
-      { lat: 30.3191, lng: 78.0268 },
-      { lat: 30.3169, lng: 78.0275 },
-      { lat: 30.3165, lng: 78.0229 },
+      { lat: 30.796, lng: 78.545 },
+      { lat: 30.806, lng: 78.575 },
+      { lat: 30.785, lng: 78.583 },
+      { lat: 30.779, lng: 78.552 },
     ],
   },
 ];
@@ -279,8 +279,8 @@ export default function MapView() {
   };
 
   const mapProps: MapContainerProps = {
-    center: [30.3158, 78.026] as LatLngExpression,
-    zoom: 14,
+    center: [30.7298, 78.4433] as LatLngExpression,
+    zoom: 12,
     style: { width: "100%", height: "100%" },
     preferCanvas: true,
   };
@@ -380,12 +380,13 @@ export default function MapView() {
           position: "absolute",
           top: 12,
           left: 12,
-          zIndex: 2,
+          zIndex: 1000,
           background: "rgba(255,255,255,0.95)",
           borderRadius: 10,
           boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
           padding: 12,
           minWidth: 280,
+          pointerEvents: "auto",
         }}
       >
         <div style={{ fontWeight: 700, marginBottom: 6 }}>Site A — Ridge Hamlet</div>
@@ -402,12 +403,13 @@ export default function MapView() {
           position: "absolute",
           top: 12,
           right: 12,
-          zIndex: 2,
+          zIndex: 1000,
           background: "rgba(255,255,255,0.98)",
           borderRadius: 10,
           boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
           padding: 12,
           minWidth: 300,
+          pointerEvents: "auto",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -516,12 +518,13 @@ export default function MapView() {
           position: "absolute",
           bottom: 14,
           left: 12,
-          zIndex: 2,
+          zIndex: 1000,
           background: "rgba(255,255,255,0.95)",
           borderRadius: 8,
           padding: "8px 10px",
           boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
           fontSize: 14,
+          pointerEvents: "auto",
         }}
       >
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Legend</div>
