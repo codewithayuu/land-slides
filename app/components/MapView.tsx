@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   MapContainer,
@@ -9,6 +9,7 @@ import {
   Polygon,
   Popup,
   TileLayer,
+  Rectangle,
   useMap,
   useMapEvents,
   type MapContainerProps,
@@ -30,6 +31,7 @@ type SensorNode = {
   risk: Risk;
   last_seen: string;
   battery: number;
+  kind?: "checkpoint" | "flag";
 };
 
 type Area = {
@@ -65,6 +67,31 @@ function dangerFlagIcon(color: string): DivIcon {
   return L.divIcon({ className: "", html, iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -9] });
 }
 
+function checkpointIcon(color: string): DivIcon {
+  const html = `
+    <div style="position:relative;width:14px;height:16px">
+      <div style="position:absolute;left:6px;top:1px;width:2px;height:14px;background:#222;border-radius:1px"></div>
+      <div style="position:absolute;left:8px;top:2px;width:10px;height:8px;background:${color};border:1px solid #fff;border-left:none;box-shadow:0 0 0 1px rgba(0,0,0,0.25)"></div>
+    </div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [20, 18], iconAnchor: [6, 16], popupAnchor: [8, -10] });
+}
+
+function hazardIcon(color: string): DivIcon {
+  const html = `
+    <div style="width:18px;height:18px;border-radius:50%;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 0 0 1px rgba(0,0,0,.25)">!</div>
+  `;
+  return L.divIcon({ className: "", html, iconSize: [18, 18], iconAnchor: [9, 18], popupAnchor: [0, -12] });
+}
+
+function iconForNode(n: SensorNode, flaggedIds: string[]): DivIcon | undefined {
+  const isFlag = n.kind === "flag" || flaggedIds.includes(n.id);
+  if (isFlag) return dangerFlagIcon(RISK_COLORS[n.risk]);
+  if (n.kind === "checkpoint") return checkpointIcon(RISK_COLORS[n.risk]);
+  if (n.risk === "Evacuate") return hazardIcon(RISK_COLORS[n.risk]);
+  return undefined;
+}
+
 const SENSOR_TYPES: readonly SensorType[] = ["tilt", "rain", "geophone"];
 
 const MarkerClusterGroup = dynamic(
@@ -72,31 +99,73 @@ const MarkerClusterGroup = dynamic(
   { ssr: false, loading: () => null }
 ) as typeof import("react-leaflet-cluster").default;
 
+function normalizeRect(a: [number, number], b: [number, number]): [[number, number], [number, number]] {
+  const swLat = Math.min(a[0], b[0]);
+  const swLng = Math.min(a[1], b[1]);
+  const neLat = Math.max(a[0], b[0]);
+  const neLng = Math.max(a[1], b[1]);
+  return [[swLat, swLng], [neLat, neLng]];
+}
+
 function MapClicks({
   drawMode,
   addNoteMode,
+  selectMode,
   onAddPoint,
   onAddNote,
   onContextMenu,
   onDismissMenu,
+  onSelectStart,
+  onSelectMove,
+  onSelectEnd,
 }: {
   drawMode: boolean;
   addNoteMode: boolean;
+  selectMode: boolean;
   onAddPoint: (pt: [number, number]) => void;
   onAddNote: (lat: number, lng: number) => void;
   onContextMenu: (x: number, y: number, lat: number, lng: number) => void;
   onDismissMenu: () => void;
+  onSelectStart: (pt: [number, number]) => void;
+  onSelectMove: (bounds: [[number, number], [number, number]]) => void;
+  onSelectEnd: () => void;
 }) {
   const map = useMap();
+  const startRef = useRef<[number, number] | null>(null);
+  const draggingRef = useRef(false);
   useMapEvents({
     click(e) {
       onDismissMenu();
+      if (selectMode) return;
       const { lat, lng } = e.latlng;
       if (drawMode) {
         onAddPoint([lat, lng]);
       } else if (addNoteMode) {
         onAddNote(lat, lng);
       }
+    },
+    mousedown(e) {
+      if (!selectMode) return;
+      const ev = e.originalEvent as MouseEvent;
+      if (ev.button !== 0) return; // left button only
+      map.dragging.disable();
+      startRef.current = [e.latlng.lat, e.latlng.lng];
+      draggingRef.current = true;
+      onSelectStart(startRef.current);
+    },
+    mousemove(e) {
+      if (!selectMode || !draggingRef.current || !startRef.current) return;
+      const bounds = normalizeRect(startRef.current, [e.latlng.lat, e.latlng.lng]);
+      onSelectMove(bounds);
+    },
+    mouseup(e) {
+      if (!selectMode || !draggingRef.current || !startRef.current) return;
+      const bounds = normalizeRect(startRef.current, [e.latlng.lat, e.latlng.lng]);
+      onSelectMove(bounds);
+      startRef.current = null;
+      draggingRef.current = false;
+      map.dragging.enable();
+      onSelectEnd();
     },
     contextmenu(e) {
       e.originalEvent.preventDefault();
@@ -299,13 +368,19 @@ export default function MapView() {
   const [userAreas, setUserAreas] = useState<Area[]>([]);
   const [userNodes, setUserNodes] = useState<SensorNode[]>([]);
   const [flagIds, setFlagIds] = useState<string[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectRect, setSelectRect] = useState<[[number, number], [number, number]] | null>(null);
+  const [selName, setSelName] = useState("Selection");
+  const [selRisk, setSelRisk] = useState<Risk>("Watch");
 
   type MenuTarget = { type: "note" | "checkpoint" | "area"; id: string };
   type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
   const [menu, setMenu] = useState<MenuState | null>(null);
 
-  const markerPropsFor = (n: SensorNode): { icon?: DivIcon } =>
-    flagIds.includes(n.id) ? { icon: dangerFlagIcon(RISK_COLORS[n.risk]) } : {};
+  const markerPropsFor = (n: SensorNode): { icon?: DivIcon } => {
+    const icon = iconForNode(n, flagIds);
+    return icon ? { icon } : {};
+  };
 
   const filteredNodes = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -334,12 +409,15 @@ export default function MapView() {
   }, [userNodes, riskFilter, typeFilter, query]);
 
   const countsByRisk = useMemo(() => {
-    const all = [...filteredNodes, ...filteredUserNodes];
-    return all.reduce(
+    const base = [...filteredNodes, ...filteredUserNodes];
+    const inRect = (n: SensorNode, rect: [[number, number], [number, number]]) =>
+      n.lat >= rect[0][0] && n.lat <= rect[1][0] && n.lng >= rect[0][1] && n.lng <= rect[1][1];
+    const src = selectRect ? base.filter((n) => inRect(n, selectRect)) : base;
+    return src.reduce(
       (acc, n) => ({ ...acc, [n.risk]: acc[n.risk] + 1 }),
       { Info: 0, Watch: 0, Warning: 0, Evacuate: 0 } as Record<Risk, number>
     );
-  }, [filteredNodes, filteredUserNodes]);
+  }, [filteredNodes, filteredUserNodes, selectRect]);
 
   const [fitKey, setFitKey] = useState<string>(safeUUID());
 
@@ -412,7 +490,7 @@ export default function MapView() {
   const mapProps: MapContainerProps = {
     center: [30.7298, 78.4433] as LatLngExpression,
     zoom: 12,
-    style: { width: "100%", height: "100%" },
+    style: { width: "100%", height: "100%", cursor: selectMode ? "crosshair" : undefined },
     preferCanvas: true,
   };
 
@@ -463,6 +541,7 @@ export default function MapView() {
         <MapClicks
           drawMode={drawMode}
           addNoteMode={addNoteMode}
+          selectMode={selectMode}
           onAddPoint={(pt) => setDrawing((d) => [...d, pt])}
           onAddNote={(lat, lng) => {
             const text = window.prompt("Note text");
@@ -474,7 +553,17 @@ export default function MapView() {
           }}
           onContextMenu={(x, y, lat, lng) => setMenu({ x, y, lat, lng })}
           onDismissMenu={() => setMenu(null)}
+          onSelectStart={(s) => setSelectRect([s, s])}
+          onSelectMove={(b) => setSelectRect(b)}
+          onSelectEnd={() => {}}
         />
+
+        {selectRect && (
+          <Rectangle
+            bounds={selectRect as unknown as any}
+            pathOptions={{ color: "#2563eb", weight: 1, fillOpacity: 0.1 }}
+          />
+        )}
 
         <FitToData
           nodes={
@@ -534,6 +623,57 @@ export default function MapView() {
                       </button>
                     </div>
                   )}
+          {selectRect && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                Drag to adjust selection. Save to tracked areas when ready.
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <input
+                  placeholder="Selection name"
+                  value={selName}
+                  onChange={(e) => setSelName(e.target.value)}
+                  style={inputStyle}
+                />
+                <select
+                  value={selRisk}
+                  onChange={(e) => setSelRisk(e.target.value as Risk)}
+                  style={{ ...inputStyle, width: 120 }}
+                >
+                  {(["Info", "Watch", "Warning", "Evacuate"] as Risk[]).map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    if (!selectRect || !selName.trim()) return;
+                    const id = `UA-${safeUUID().slice(0, 6)}`;
+                    const [[sLat, sLng], [nLat, nLng]] = selectRect;
+                    const coords = [
+                      { lat: sLat, lng: sLng },
+                      { lat: sLat, lng: nLng },
+                      { lat: nLat, lng: nLng },
+                      { lat: nLat, lng: sLng },
+                    ];
+                    setUserAreas((prev) => [
+                      ...prev,
+                      { id, name: selName.trim(), risk: selRisk, coords },
+                    ]);
+                  }}
+                  style={btnStyle}
+                >
+                  Save selection as area
+                </button>
+                <button onClick={() => setSelectRect(null)} style={btnStyle}>
+                  Clear selection
+                </button>
+              </div>
+            </div>
+          )}
                 </Popup>
               </Marker>
             ))}
@@ -844,6 +984,20 @@ export default function MapView() {
               />
               Add note
             </label>
+            <label style={chkStyle}>
+              <input
+                type="checkbox"
+                checked={selectMode}
+                onChange={() => {
+                  setSelectMode((p) => {
+                    const next = !p;
+                    if (!next) setSelectRect(null);
+                    return next;
+                  });
+                }}
+              />
+              Select rectangle
+            </label>
           </div>
 
           {drawMode && (
@@ -901,27 +1055,6 @@ export default function MapView() {
               </div>
             </div>
           )}
-        </Section>
-
-        <Section title="Notes">
-          <div style={{ fontSize: 12, color: "#6b7280", width: "100%" }}>
-            {notes.length === 0 ? "No notes yet" : `${notes.length} note(s)`}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-            {notes.map((n) => (
-              <div key={n.id} style={{ display: "flex", gap: 8, alignItems: "center", width: "100%" }}>
-                <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {n.text}
-                </div>
-                <button
-                  onClick={() => setNotes((prev) => prev.filter((x) => x.id !== n.id))}
-                  style={btnStyle}
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
         </Section>
       </div>
 
@@ -1025,6 +1158,7 @@ export default function MapView() {
                   risk,
                   last_seen: new Date().toISOString().slice(0, 16).replace("T", " "),
                   battery: 3.8,
+                  kind: "checkpoint",
                 },
               ]);
             };
@@ -1065,11 +1199,29 @@ export default function MapView() {
               );
             }
             if (menu.target?.type === "area") {
+              const id = menu.target!.id;
+              const current = userAreas.find((a) => a.id === id);
+              if (!current) return null;
+              const editName = () => {
+                const nm = window.prompt("Area name", current.name);
+                if (!nm) return;
+                setUserAreas((prev) => prev.map((a) => (a.id === id ? { ...a, name: nm } : a)));
+              };
+              const editRisk = () => {
+                const r = (window.prompt("Risk (Info/Watch/Warning/Evacuate)", current.risk) || current.risk).toLowerCase();
+                const proper = (r.charAt(0).toUpperCase() + r.slice(1)) as Risk;
+                const risk: Risk = ["Info", "Watch", "Warning", "Evacuate"].includes(proper) ? proper : current.risk;
+                setUserAreas((prev) => prev.map((a) => (a.id === id ? { ...a, risk } : a)));
+              };
               return (
-                <Item
-                  label="Delete area"
-                  onClick={() => setUserAreas((prev) => prev.filter((a) => a.id !== menu.target!.id))}
-                />
+                <>
+                  <Item label="Edit area name" onClick={editName} />
+                  <Item label="Edit area risk" onClick={editRisk} />
+                  <Item
+                    label="Delete area"
+                    onClick={() => setUserAreas((prev) => prev.filter((a) => a.id !== id))}
+                  />
+                </>
               );
             }
 
@@ -1090,6 +1242,7 @@ export default function MapView() {
                   risk,
                   last_seen: new Date().toISOString().slice(0, 16).replace("T", " "),
                   battery: 3.8,
+                  kind: "flag",
                 },
               ]);
               setFlagIds((prev) => [...prev, id]);
