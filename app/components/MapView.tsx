@@ -432,6 +432,10 @@ export default function MapView() {
   const [selName, setSelName] = useState("Selection");
   const [selRisk, setSelRisk] = useState<Risk>("Watch");
   const [clusterRadius, setClusterRadius] = useState(40);
+  const [isMobile, setIsMobile] = useState(false);
+  const [collapseRight, setCollapseRight] = useState(false);
+  const [collapseLeft, setCollapseLeft] = useState(false);
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
 
   type MenuTarget = { type: "note" | "checkpoint" | "area"; id: string };
   type MenuState = { x: number; y: number; lat: number; lng: number; target?: MenuTarget };
@@ -506,6 +510,18 @@ export default function MapView() {
     compute();
     window.addEventListener('resize', compute);
     return () => window.removeEventListener('resize', compute);
+  }, []);
+
+  // Mobile detection and initial collapses
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const m = window.innerWidth <= 640;
+    setIsMobile(m);
+    setCollapseRight(m);
+    setLegendCollapsed(m);
+    const onResize = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   // Load persisted state
@@ -895,17 +911,28 @@ export default function MapView() {
           borderRadius: 10,
           boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
           padding: 12,
-          minWidth: 280,
+          minWidth: 260,
+          maxHeight: isMobile ? "40vh" : undefined,
+          overflowY: isMobile ? "auto" : undefined,
           pointerEvents: "auto",
         }}
       >
-        <div style={{ fontWeight: 700, marginBottom: 6 }}>Site A — Ridge Hamlet</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Tile color="#009E73" label="Info" value={countsByRisk.Info} />
-          <Tile color="#E69F00" label="Watch" value={countsByRisk.Watch} />
-          <Tile color="#D55E00" label="Warning" value={countsByRisk.Warning} />
-          <Tile color="#9E0000" label="Evacuate" value={countsByRisk.Evacuate} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, flex: 1 }}>Site A — Ridge Hamlet</div>
+          {isMobile && (
+            <button onClick={() => setCollapseLeft((p) => !p)} style={btnStyle}>
+              {collapseLeft ? "Expand" : "Collapse"}
+            </button>
+          )}
         </div>
+        {(!isMobile || !collapseLeft) && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Tile color="#009E73" label="Info" value={countsByRisk.Info} />
+            <Tile color="#E69F00" label="Watch" value={countsByRisk.Watch} />
+            <Tile color="#D55E00" label="Warning" value={countsByRisk.Warning} />
+            <Tile color="#9E0000" label="Evacuate" value={countsByRisk.Evacuate} />
+          </div>
+        )}
       </div>
 
       <div
@@ -914,12 +941,14 @@ export default function MapView() {
           position: "absolute",
           top: 12,
           right: 12,
-          zIndex: 1000,
+          zIndex: 1100,
           background: "rgba(255,255,255,0.98)",
           borderRadius: 10,
           boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
           padding: 12,
-          minWidth: 300,
+          minWidth: 260,
+          maxHeight: isMobile ? "calc(100vh - 140px)" : undefined,
+          overflowY: isMobile ? "auto" : undefined,
           pointerEvents: "auto",
         }}
       >
@@ -928,8 +957,14 @@ export default function MapView() {
           <button onClick={() => setFitKey(safeUUID())} style={btnStyle}>
             Fit to data
           </button>
+          {isMobile && (
+            <button onClick={() => setCollapseRight((p) => !p)} style={btnStyle}>
+              {collapseRight ? "Expand" : "Collapse"}
+            </button>
+          )}
         </div>
-
+        {(!isMobile || !collapseRight) && (
+        <>
         <div style={{ marginBottom: 8 }}>
           <input
             placeholder="Search name or ID…"
@@ -1150,6 +1185,8 @@ export default function MapView() {
             </div>
           )}
         </Section>
+        </>
+        )}
       </div>
 
       <div
@@ -1167,35 +1204,46 @@ export default function MapView() {
           pointerEvents: "auto",
         }}
       >
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Legend</div>
-        <LegendItem color="#009E73" text="Info" />
-        <LegendItem color="#E69F00" text="Watch" />
-        <LegendItem color="#D55E00" text="Warning" />
-        <LegendItem color="#9E0000" text="Evacuate" />
-        {showHeatmap && (
-          <div style={{ marginTop: 6 }}>
-            <div style={{ fontSize: 13, marginBottom: 4 }}>Heatmap intensity</div>
-            <div
-              style={{
-                height: 12,
-                borderRadius: 6,
-                background: "linear-gradient(90deg,#4ade80,#facc15,#f97316,#ef4444)",
-                border: "1px solid rgba(0,0,0,0.15)",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: 12,
-                opacity: 0.8,
-                marginTop: 2,
-              }}
-            >
-              <span>Low</span>
-              <span>High</span>
-            </div>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <div style={{ fontWeight: 600, flex: 1 }}>Legend</div>
+          {isMobile && (
+            <button onClick={() => setLegendCollapsed((p) => !p)} style={btnStyle}>
+              {legendCollapsed ? "Expand" : "Collapse"}
+            </button>
+          )}
+        </div>
+        {(!isMobile || !legendCollapsed) && (
+          <>
+            <LegendItem color="#009E73" text="Info" />
+            <LegendItem color="#E69F00" text="Watch" />
+            <LegendItem color="#D55E00" text="Warning" />
+            <LegendItem color="#9E0000" text="Evacuate" />
+            {showHeatmap && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 13, marginBottom: 4 }}>Heatmap intensity</div>
+                <div
+                  style={{
+                    height: 12,
+                    borderRadius: 6,
+                    background: "linear-gradient(90deg,#4ade80,#facc15,#f97316,#ef4444)",
+                    border: "1px solid rgba(0,0,0,0.15)",
+                  }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 12,
+                    opacity: 0.8,
+                    marginTop: 2,
+                  }}
+                >
+                  <span>Low</span>
+                  <span>High</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
